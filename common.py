@@ -27,7 +27,8 @@ def create_state_message(game_state):
         "f": game_state["food"],  # food artık bir liste
         "a": game_state["active"],
         "c": game_state["colors"],
-        "o": game_state["obstacles"]
+        "o": game_state["obstacles"],
+        "scores": game_state["scores"]
     })
 
 def create_restart_message(client_id):

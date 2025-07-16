@@ -4,6 +4,7 @@ import threading
 import json
 from common import MSG_MOVE, MSG_STATE, MSG_RESTART, create_move_message, create_restart_message
 import sys
+import re
 
 # Disconnect mesajı için yeni bir sabit ekle
 MSG_DISCONNECT = 'disconnect'
@@ -12,6 +13,8 @@ def create_disconnect_message(client_id):
     return json.dumps({"type": MSG_DISCONNECT, "client_id": client_id})
 
 CLIENT_ID = input("Client ID girin (ör: client-1): ")
+if not re.match(r'^[A-Za-z0-9_-]+$', CLIENT_ID):
+    print("Uyarı: Kullanıcı adında Türkçe karakter, boşluk veya özel karakter olmamalı! Sadece harf, rakam, - ve _ kullanın.")
 
 # RabbitMQ bağlantısı
 credentials = pika.PlainCredentials('staj2', 'staj2')
@@ -39,7 +42,8 @@ def listen_state():
                 "food": msg["f"],
                 "active": msg["a"],
                 "colors": msg.get("c", {}),
-                "obstacles": msg.get("o", [])
+                "obstacles": msg.get("o", []),
+                "scores": msg.get("scores", {})
             }
     channel.basic_consume(queue='snake_state', on_message_callback=callback, auto_ack=True)
     channel.start_consuming()
@@ -130,31 +134,49 @@ while True:
                     current_direction = new_direction
     screen.fill((0, 0, 0))
     if game_state:
-        # Yılanları çiz
-        for snake_id, snake in game_state["snakes"].items():
-            color = (0, 255, 0)  # Varsayılan yeşil
-            if "colors" in game_state and snake_id in game_state["colors"]:
-                color = tuple(game_state["colors"][snake_id])
-            for x, y in snake:
-                pygame.draw.rect(screen, color, (x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-        # Engelleri çiz
-        if "obstacles" in game_state:
-            from common import OBSTACLE_COLORS
-            for obs in game_state["obstacles"]:
-                ox, oy = obs["pos"]
-                ocolor = OBSTACLE_COLORS.get(obs["type"], (128, 128, 128))
-                pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-        # Yemleri çiz
-        if "food" in game_state:
-            foods = game_state["food"]
-            if isinstance(foods, tuple):
-                foods = [foods]
-            for fx, fy in foods:
-                pygame.draw.rect(screen, (255, 0, 0), (fx*CELL_SIZE, fy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-        # Eğer elendiyse mesaj göster
-        if not is_active():
-            text = font.render("Elenedin! Devam için tuşa bas", True, (255, 255, 255))
-            rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2))
-            screen.blit(text, rect)
+        if game_state and "snakes" in game_state:
+            # Yılanları çiz
+            for snake_id, snake in game_state["snakes"].items():
+                color = (0, 255, 0)  # Varsayılan yeşil
+                if "colors" in game_state and snake_id in game_state["colors"]:
+                    color = tuple(game_state["colors"][snake_id])
+                for x, y in snake:
+                    pygame.draw.rect(screen, color, (x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            # Skorları yaz
+            if "scores" in game_state and game_state["scores"]:
+                ids = list(game_state["scores"].keys())
+                positions = [
+                    (20, 10),  # sol üst
+                    (BOARD_WIDTH*CELL_SIZE//2, 10),  # orta üst
+                    (BOARD_WIDTH*CELL_SIZE-200, 10)  # sağ üst
+                ]
+                for i, pid in enumerate(ids):
+                    if i >= 3:
+                        break
+                    score = game_state["scores"].get(pid, 0)
+                    name = str(pid)
+                    text = font.render(f"{name}: {score}", True, (255, 255, 255))
+                    rect = text.get_rect()
+                    rect.topleft = positions[i]
+                    screen.blit(text, rect)
+            # Engelleri çiz
+            if "obstacles" in game_state:
+                from common import OBSTACLE_COLORS
+                for obs in game_state["obstacles"]:
+                    ox, oy = obs["pos"]
+                    ocolor = OBSTACLE_COLORS.get(obs["type"], (128, 128, 128))
+                    pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            # Yemleri çiz
+            if "food" in game_state:
+                foods = game_state["food"]
+                if isinstance(foods, tuple):
+                    foods = [foods]
+                for fx, fy in foods:
+                    pygame.draw.rect(screen, (255, 0, 0), (fx*CELL_SIZE, fy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            # Eğer elendiyse mesaj göster
+            if not is_active():
+                text = font.render("Elenedin! Devam için tuşa bas", True, (255, 255, 255))
+                rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2))
+                screen.blit(text, rect)
     pygame.display.flip()
     clock.tick(30)  # FPS = 30 

@@ -26,7 +26,8 @@ game_state = {
     "food": [(5, 5), (10, 10)],  # 2 yem
     "active": {},  # client_id: True/False
     "colors": {},  # client_id: (r, g, b)
-    "obstacles": []  # {"pos": (x, y), "type": "slow"/"poison"}
+    "obstacles": [],  # {"pos": (x, y), "type": "slow"/"poison"}
+    "scores": {}    # client_id: skor
 }
 
 def place_obstacles():
@@ -51,6 +52,8 @@ def reset_snake(client_id):
     game_state["directions"][client_id] = "UP"
     game_state["active"][client_id] = True
     game_state["colors"][client_id] = get_snake_color(client_id)
+    if client_id not in game_state["scores"]:
+        game_state["scores"][client_id] = 0
     if len(game_state["snakes"]) == 1:
         game_state["obstacles"] = place_obstacles()  # Sadece ilk oyuncu girince engelleri yerleştir
 
@@ -104,6 +107,8 @@ def move_snake(client_id):
             # Yeni yem üret
             game_state["food"][i] = random_food(game_state["snakes"], game_state["food"])
             ate_food = True
+            # Skoru artır
+            game_state["scores"][client_id] = game_state["scores"].get(client_id, 0) + 1
             break
     if not ate_food:
         snake.insert(0, new_head)
@@ -134,6 +139,7 @@ def on_move(ch, method, properties, body):
         game_state["directions"].pop(client_id, None)
         game_state["active"].pop(client_id, None)
         game_state["colors"].pop(client_id, None)
+        game_state["scores"].pop(client_id, None)
 
 def rabbitmq_consume():
     credentials = pika.PlainCredentials('staj2', 'staj2')
