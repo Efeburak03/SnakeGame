@@ -9,7 +9,7 @@ import copy
 BOARD_WIDTH = 60   # Enine daha geniş
 BOARD_HEIGHT = 40
 START_LENGTH = 3
-TICK_RATE = 0.07  # saniye, 30 FPS
+TICK_RATE = 0.05  # saniye, 30 FPS
 
 def random_food(snakes, foods):
     occupied = set()
@@ -28,7 +28,8 @@ game_state = {
     "active": {},  # client_id: True/False
     "colors": {},  # client_id: (r, g, b)
     "obstacles": [],  # {"pos": (x, y), "type": "slow"/"poison"}
-    "scores": {}    # client_id: skor
+    "scores": {},    # client_id: skor
+    "portals": []    # portal çiftleri
 }
 
 def place_obstacles():
@@ -40,6 +41,17 @@ def place_obstacles():
         x, y = random.randint(0, BOARD_WIDTH-1), random.randint(0, BOARD_HEIGHT-1)
         obstacles.append({"pos": (x, y), "type": "poison"})
     return obstacles
+
+def place_portals():
+    occupied = set()
+    for snake in game_state["snakes"].values():
+        occupied.update(snake)
+    occupied.update(game_state["food"])
+    while True:
+        a = (random.randint(0, BOARD_WIDTH-1), random.randint(0, BOARD_HEIGHT-1))
+        b = (random.randint(0, BOARD_WIDTH-1), random.randint(0, BOARD_HEIGHT-1))
+        if a != b and a not in occupied and b not in occupied:
+            return [(a, b)]
 
 def reset_snake(client_id):
     # Maksimum oyuncu kontrolü
@@ -57,6 +69,7 @@ def reset_snake(client_id):
         game_state["scores"][client_id] = 0
     if len(game_state["snakes"]) == 1:
         game_state["obstacles"] = place_obstacles()  # Sadece ilk oyuncu girince engelleri yerleştir
+        game_state["portals"] = place_portals()      # Sadece ilk oyuncu girince portalları yerleştir
 
 def eliminate_snake(client_id):
     game_state["active"][client_id] = False
@@ -80,6 +93,14 @@ def move_snake(client_id):
     elif direction == "RIGHT":
         head_x += 1
     new_head = (head_x, head_y)
+    # --- PORTAL KONTROLÜ ---
+    for portal_a, portal_b in game_state.get("portals", []):
+        if new_head == portal_a:
+            new_head = portal_b
+            break
+        elif new_head == portal_b:
+            new_head = portal_a
+            break
     # Engel kontrolü
     for obs in game_state.get("obstacles", []):
         if new_head == tuple(obs["pos"]):
@@ -90,7 +111,7 @@ def move_snake(client_id):
                     snake.pop()  # Yılanı kısalt
             break
     # Çarpışma kontrolü
-    if not (0 <= head_x < BOARD_WIDTH and 0 <= head_y < BOARD_HEIGHT):
+    if not (0 <= new_head[0] < BOARD_WIDTH and 0 <= new_head[1] < BOARD_HEIGHT):
         eliminate_snake(client_id)
         return
     for other_id, other_snake in game_state["snakes"].items():
@@ -116,26 +137,18 @@ def move_snake(client_id):
         snake.pop()
     game_state["snakes"][client_id] = snake
 
+move_queue = []
+
 def on_move(ch, method, properties, body):
     msg = json.loads(body)
     if msg.get("type") == MSG_MOVE:
-        client_id = msg["client_id"]
-        # Maksimum oyuncu kontrolü
-        if len(game_state["snakes"]) >= MAX_PLAYERS and client_id not in game_state["snakes"]:
-            return  # Yeni oyuncu kabul etme
-        direction = msg["direction"]
-        # Sadece yönü güncelle
-        if client_id in game_state["snakes"]:
-            game_state["directions"][client_id] = direction
-        else:
-            reset_snake(client_id)
-            game_state["directions"][client_id] = direction
+        move_queue.append(msg)
     elif msg.get("type") == MSG_RESTART:
         client_id = msg["client_id"]
         reset_snake(client_id)
     elif msg.get("type") == 'disconnect':
         client_id = msg["client_id"]
-        # Tüm verileri sil
+        # Tüm verileri sil (skor, renk, yılan, aktiflik, yön)
         game_state["snakes"].pop(client_id, None)
         game_state["directions"].pop(client_id, None)
         game_state["active"].pop(client_id, None)
@@ -166,9 +179,30 @@ threading.Thread(target=rabbitmq_consume, daemon=True).start()
 def game_loop():
     last_state_msg = None
     while True:
+        # 1. Hareket kuyruğundaki tüm hareketleri sırayla işle
+        while move_queue:
+            msg = move_queue.pop(0)
+            client_id = msg["client_id"]
+            direction = msg["direction"]
+            # Ters yöne dönmeyi engelle (güvenlik için)
+            current_dir = game_state["directions"].get(client_id)
+            OPPOSITE_DIRECTIONS = {
+                "UP": "DOWN",
+                "DOWN": "UP",
+                "LEFT": "RIGHT",
+                "RIGHT": "LEFT"
+            }
+            if current_dir and OPPOSITE_DIRECTIONS.get(current_dir) == direction:
+                continue  # Ters yöne dönmeye izin verme
+            if client_id in game_state["snakes"]:
+                game_state["directions"][client_id] = direction
+            else:
+                reset_snake(client_id)
+                game_state["directions"][client_id] = direction
+        # 2. Yılanları hareket ettir
         for client_id in list(game_state["snakes"].keys()):
             move_snake(client_id)
-        # Her tick'te yeni durumu yayınla (aktiflik bilgisiyle birlikte)
+        # 3. State mesajı gönder
         state_msg = create_state_message(game_state)
         if state_msg != last_state_msg:
             channel.basic_publish(

@@ -30,7 +30,8 @@ def create_state_message(game_state):
         "a": game_state["active"],
         "c": game_state["colors"],
         "o": game_state["obstacles"],
-        "scores": game_state["scores"]
+        "scores": game_state["scores"],
+        "p": game_state.get("portals", [])  # <-- PORTALLARI EKLE
     })
 
 def create_restart_message(client_id):

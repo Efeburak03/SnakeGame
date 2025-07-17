@@ -33,6 +33,11 @@ def is_active():
     return True
 
 def listen_state():
+    import pika
+    credentials = pika.PlainCredentials('staj2', 'staj2')
+    consume_connection = pika.BlockingConnection(pika.ConnectionParameters('rabbitmq.icrontech.com', credentials=credentials))
+    consume_channel = consume_connection.channel()
+    consume_channel.queue_declare(queue='snake_state')
     def callback(ch, method, properties, body):
         global game_state
         msg = json.loads(body)
@@ -44,10 +49,11 @@ def listen_state():
                 "active": msg["a"],
                 "colors": msg.get("c", {}),
                 "obstacles": msg.get("o", []),
-                "scores": msg.get("scores", {})
+                "scores": msg.get("scores", {}),
+                "portals": msg.get("p", []) # Portallar bilgisini ekliyoruz
             }
-    channel.basic_consume(queue='snake_state', on_message_callback=callback, auto_ack=True)
-    channel.start_consuming()
+    consume_channel.basic_consume(queue='snake_state', on_message_callback=callback, auto_ack=True)
+    consume_channel.start_consuming()
 
 threading.Thread(target=listen_state, daemon=True).start()
 
@@ -121,6 +127,8 @@ while True:
                     channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
                 except Exception as e:
                     print("RabbitMQ bağlantı hatası:", e)
+                # Restart sonrası yönü güncelle (varsayılan)
+                current_direction = "UP"
             else:
                 new_direction = None
                 if event.key == pygame.K_UP:
@@ -182,6 +190,13 @@ while True:
                     ox, oy = obs["pos"]
                     ocolor = OBSTACLE_COLORS.get(obs["type"], (128, 128, 128))
                     pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            # --- PORTALLARI ÇİZ ---
+            if "portals" in game_state:
+                for i, (portal_a, portal_b) in enumerate(game_state["portals"]):
+                    # Her iki portalı da aynı renkte (ör: mor) çiz
+                    portal_color = (128, 0, 255)
+                    pygame.draw.rect(screen, portal_color, (portal_a[0]*CELL_SIZE, portal_a[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                    pygame.draw.rect(screen, portal_color, (portal_b[0]*CELL_SIZE, portal_b[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
             # Yemleri çiz
             if "food" in game_state:
                 foods = game_state["food"]
