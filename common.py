@@ -1,3 +1,5 @@
+# common.py
+# Ortak sabitler, mesaj tipleri ve yardımcı fonksiyonlar
 import json
 
 # Mesaj tipleri

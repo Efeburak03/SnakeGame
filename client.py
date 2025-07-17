@@ -5,6 +5,7 @@ import json
 from common import MSG_MOVE, MSG_STATE, MSG_RESTART, create_move_message, create_restart_message
 import sys
 import re
+import os
 
 # Disconnect mesajı için yeni bir sabit ekle
 MSG_DISCONNECT = 'disconnect'
@@ -57,6 +58,12 @@ CELL_SIZE = 20
 screen = pygame.display.set_mode((BOARD_WIDTH*CELL_SIZE, BOARD_HEIGHT*CELL_SIZE), pygame.DOUBLEBUF)
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 36)
+# Arka plan görselini yükle ve ölçekle
+background_img = None
+bg_path = os.path.join("assets", "Background.jpg")
+if os.path.exists(bg_path):
+    background_img = pygame.image.load(bg_path)
+    background_img = pygame.transform.scale(background_img, (BOARD_WIDTH*CELL_SIZE, BOARD_HEIGHT*CELL_SIZE))
 
 # Başlatma ekranı
 started = False
@@ -132,7 +139,11 @@ while True:
                     except Exception as e:
                         print("RabbitMQ bağlantı hatası:", e)
                     current_direction = new_direction
-    screen.fill((0, 0, 0))
+    # Arka planı çiz
+    if background_img:
+        screen.blit(background_img, (0, 0))
+    else:
+        screen.fill((0, 0, 0))
     if game_state:
         if game_state and "snakes" in game_state:
             # Yılanları çiz
@@ -150,15 +161,20 @@ while True:
                     (BOARD_WIDTH*CELL_SIZE//2, 10),  # orta üst
                     (BOARD_WIDTH*CELL_SIZE-200, 10)  # sağ üst
                 ]
-                for i, pid in enumerate(ids):
-                    if i >= 3:
+                shown = 0
+                for pid in ids:
+                    # Sadece aktif oyuncuların skorunu göster
+                    if "active" in game_state and not game_state["active"].get(pid, True):
+                        continue
+                    if shown >= 3:
                         break
                     score = game_state["scores"].get(pid, 0)
                     name = str(pid)
                     text = font.render(f"{name}: {score}", True, (255, 255, 255))
                     rect = text.get_rect()
-                    rect.topleft = positions[i]
+                    rect.topleft = positions[shown]
                     screen.blit(text, rect)
+                    shown += 1
             # Engelleri çiz
             if "obstacles" in game_state:
                 from common import OBSTACLE_COLORS

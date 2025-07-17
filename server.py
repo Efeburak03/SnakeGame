@@ -4,6 +4,7 @@ import random
 import threading
 import time
 from common import MSG_MOVE, MSG_STATE, MSG_RESTART, create_state_message, MAX_PLAYERS, get_snake_color, OBSTACLE_TYPES
+import copy
 
 BOARD_WIDTH = 60   # Enine daha geniş
 BOARD_HEIGHT = 40
