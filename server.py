@@ -9,7 +9,7 @@ import copy
 BOARD_WIDTH = 60   # Enine daha geniş
 BOARD_HEIGHT = 40
 START_LENGTH = 3
-TICK_RATE = 0.05  # saniye, 30 FPS
+TICK_RATE = 0.07  # saniye, 30 FPS
 
 def random_food(snakes, foods):
     occupied = set()

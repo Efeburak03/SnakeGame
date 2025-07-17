@@ -218,11 +218,19 @@ while True:
                     pygame.draw.rect(screen, portal_color, (portal_b[0]*CELL_SIZE, portal_b[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
             # Yemleri çiz
             if "food" in game_state:
+                apple_img = None
+                apple_path = os.path.join("assets", "elma.png")
+                if os.path.exists(apple_path):
+                    apple_img = pygame.image.load(apple_path)
+                    apple_img = pygame.transform.scale(apple_img, (CELL_SIZE, CELL_SIZE))
                 foods = game_state["food"]
                 if isinstance(foods, tuple):
                     foods = [foods]
                 for fx, fy in foods:
-                    pygame.draw.rect(screen, (255, 0, 0), (fx*CELL_SIZE, fy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                    if apple_img:
+                        screen.blit(apple_img, (fx*CELL_SIZE, fy*CELL_SIZE))
+                    else:
+                        pygame.draw.rect(screen, (255, 0, 0), (fx*CELL_SIZE, fy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
             # Eğer elendiyse mesaj göster
             if not is_active():
                 text = font.render("Elenedin! Devam için tuşa bas", True, (255, 255, 255))
