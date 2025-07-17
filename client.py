@@ -186,10 +186,23 @@ while True:
             # Engelleri çiz
             if "obstacles" in game_state:
                 from common import OBSTACLE_COLORS
+                grass_img = None
+                grass_path = os.path.join("assets", "çimen.png")
+                if os.path.exists(grass_path):
+                    grass_img = pygame.image.load(grass_path)
+                    grass_img = pygame.transform.scale(grass_img, (CELL_SIZE, CELL_SIZE))
                 for obs in game_state["obstacles"]:
                     ox, oy = obs["pos"]
                     ocolor = OBSTACLE_COLORS.get(obs["type"], (128, 128, 128))
-                    pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                    if obs["type"] == "slow" and grass_img:
+                        # Biraz daha büyük çiz (ör: %20 büyük)
+                        scale = 1.2
+                        size = int(CELL_SIZE * scale)
+                        offset = int((size - CELL_SIZE) / 2)
+                        big_grass = pygame.transform.scale(grass_img, (size, size))
+                        screen.blit(big_grass, (ox*CELL_SIZE - offset, oy*CELL_SIZE - offset))
+                    else:
+                        pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
             # --- PORTALLARI ÇİZ ---
             if "portals" in game_state:
                 for i, (portal_a, portal_b) in enumerate(game_state["portals"]):
