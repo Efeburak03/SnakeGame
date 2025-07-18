@@ -31,7 +31,8 @@ def create_state_message(game_state):
         "c": game_state["colors"],
         "o": game_state["obstacles"],
         "scores": game_state["scores"],
-        "p": game_state.get("portals", [])  # <-- PORTALLARI EKLE
+        "p": game_state.get("portals", []),  # <-- PORTALLARI EKLE
+        "u": game_state.get("powerups", []),  # <-- POWERUPS EKLE
     })
 
 def create_restart_message(client_id):
@@ -51,8 +52,13 @@ def get_snake_color(client_id):
         idx = 0
     return SNAKE_COLORS[idx % len(SNAKE_COLORS)]
 
-OBSTACLE_TYPES = ["slow", "poison"]
+OBSTACLE_TYPES = ["slow", "poison", "wall", "hidden_wall"]
 OBSTACLE_COLORS = {
-    "slow": (0, 255, 255),    # Açık mavi
-    "poison": (128, 0, 128)  # Mor
-} 
+    "slow": (0, 200, 0),
+    "poison": (128, 0, 128),
+    "wall": (80, 80, 80),
+    "hidden_wall": (80, 80, 80)
+}
+FOOD_NORMAL = 0
+FOOD_MOVING = 1  # Oyuncudan kaçan yem
+FOOD_GOLDEN = 2  # Altın elma 

@@ -6,6 +6,7 @@ from common import MSG_MOVE, MSG_STATE, MSG_RESTART, create_move_message, create
 import sys
 import re
 import os
+import time
 
 # Disconnect mesajı için yeni bir sabit ekle
 MSG_DISCONNECT = 'disconnect'
@@ -26,6 +27,9 @@ channel.queue_declare(queue='snake_state')
 
 game_state = None
 current_direction = None  # Son gönderilen yön
+
+# Elenme zamanı takibi
+elimination_time = None
 
 def is_active():
     if game_state and "active" in game_state:
@@ -50,7 +54,12 @@ def listen_state():
                 "colors": msg.get("c", {}),
                 "obstacles": msg.get("o", []),
                 "scores": msg.get("scores", {}),
-                "portals": msg.get("p", []) # Portallar bilgisini ekliyoruz
+                "portals": msg.get("p", []),
+                "u": msg.get("u", []),
+                "powerup_timers": msg.get("powerup_timers", {}),
+                "bullet_pickups": msg.get("bullet_pickups", []),
+                "active_bullets": msg.get("active_bullets", []),
+                "danger_zone": msg.get("danger_zone", None)
             }
     consume_channel.basic_consume(queue='snake_state', on_message_callback=callback, auto_ack=True)
     consume_channel.start_consuming()
@@ -61,6 +70,22 @@ pygame.init()
 BOARD_WIDTH = 60
 BOARD_HEIGHT = 40
 CELL_SIZE = 20
+
+# --- YILAN SPRITE'LARI YÜKLE ---
+snake_sprites = {}
+sprite_names = [
+    "head_up", "head_down", "head_left", "head_right",
+    "tail_up", "tail_down", "tail_left", "tail_right",
+    "body_horizontal", "body_vertical",
+    "body_topleft", "body_topright", "body_bottomleft", "body_bottomright"
+]
+for name in sprite_names:
+    path = os.path.join("Graphics", f"{name}.png")
+    if os.path.exists(path):
+        img = pygame.image.load(path)
+        img = pygame.transform.scale(img, (CELL_SIZE, CELL_SIZE))
+        snake_sprites[name] = img
+
 screen = pygame.display.set_mode((BOARD_WIDTH*CELL_SIZE, BOARD_HEIGHT*CELL_SIZE), pygame.DOUBLEBUF)
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 36)
@@ -121,15 +146,25 @@ while True:
             sys.exit()
         elif event.type == pygame.KEYDOWN:
             if not is_active():
-                # Elendiyse, herhangi bir tuşa basınca restart isteği gönder
-                msg = create_restart_message(CLIENT_ID)
-                try:
-                    channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
-                except Exception as e:
-                    print("RabbitMQ bağlantı hatası:", e)
-                # Restart sonrası yönü güncelle (varsayılan)
-                current_direction = "UP"
+                now = time.time()
+                # Elenme zamanı kaydedilmemişse kaydet
+                if elimination_time is None:
+                    elimination_time = now
+                # 5 saniye geçmediyse hiçbir şey yapma
+                elif now - elimination_time < 5:
+                    pass  # Bekleme devam ediyor
+                else:
+                    # 5 saniye geçtiyse restart isteği gönder
+                    msg = create_restart_message(CLIENT_ID)
+                    try:
+                        channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
+                    except Exception as e:
+                        print("RabbitMQ bağlantı hatası:", e)
+                    # Restart sonrası yönü güncelle (varsayılan)
+                    current_direction = "UP"
+                    elimination_time = None  # Yeniden başlatınca sıfırla
             else:
+                # Yön tuşları
                 new_direction = None
                 if event.key == pygame.K_UP:
                     new_direction = "UP"
@@ -139,7 +174,6 @@ while True:
                     new_direction = "LEFT"
                 elif event.key == pygame.K_RIGHT:
                     new_direction = "RIGHT"
-                # Ters yöne dönmeyi engelle
                 if new_direction and new_direction != current_direction and not (current_direction and OPPOSITE_DIRECTIONS[current_direction] == new_direction):
                     msg = create_move_message(CLIENT_ID, new_direction)
                     try:
@@ -147,6 +181,14 @@ while True:
                     except Exception as e:
                         print("RabbitMQ bağlantı hatası:", e)
                     current_direction = new_direction
+                # Space tuşu
+                # if event.key == pygame.K_SPACE:
+                #     if game_state and "bullets" in game_state and CLIENT_ID in game_state["bullets"] and game_state["bullets"][CLIENT_ID] > 0:
+                #         msg = json.dumps({"type": "fire", "client_id": CLIENT_ID})
+                #         try:
+                #             channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
+                #         except Exception as e:
+                #             print("RabbitMQ bağlantı hatası:", e)
     # Arka planı çiz
     if background_img:
         screen.blit(background_img, (0, 0))
@@ -159,9 +201,13 @@ while True:
                 color = (0, 255, 0)  # Varsayılan yeşil
                 if "colors" in game_state and snake_id in game_state["colors"]:
                     color = tuple(game_state["colors"][snake_id])
+                # --- YILAN KARE İLE ÇİZİM ---
                 for x, y in snake:
                     pygame.draw.rect(screen, color, (x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-            # Skorları yaz
+                else:
+                    # Yılan yoksa bir şey çizme
+                    pass
+            # Skorları ve mermi sayılarını yaz
             if "scores" in game_state and game_state["scores"]:
                 ids = list(game_state["scores"].keys())
                 positions = [
@@ -190,51 +236,119 @@ while True:
                 grass_path = os.path.join("assets", "çimen.png")
                 if os.path.exists(grass_path):
                     grass_img = pygame.image.load(grass_path)
-                    grass_img = pygame.transform.scale(grass_img, (CELL_SIZE, CELL_SIZE))
+                    grass_img = pygame.transform.scale(grass_img, (int(CELL_SIZE*1.2), int(CELL_SIZE*1.2)))
                 box_img = None
                 box_path = os.path.join("assets", "kutu.png")
                 if os.path.exists(box_path):
                     box_img = pygame.image.load(box_path)
-                    box_img = pygame.transform.scale(box_img, (CELL_SIZE, CELL_SIZE))
+                    box_img = pygame.transform.scale(box_img, (int(CELL_SIZE*1.5), int(CELL_SIZE*1.5)))
                 for obs in game_state["obstacles"]:
                     ox, oy = obs["pos"]
-                    ocolor = OBSTACLE_COLORS.get(obs["type"], (128, 128, 128))
-                    if obs["type"] == "slow" and grass_img:
-                        scale = 1.2
-                        size = int(CELL_SIZE * scale)
+                    otype = obs["type"]
+                    # Gizli duvar ise, sadece yılan başına yakınsa çiz
+                    if otype == "hidden_wall":
+                        show = False
+                        for snake in game_state["snakes"].values():
+                            if not snake:
+                                continue
+                            hx, hy = snake[0]
+                            if abs(ox - hx) <= 4 and abs(oy - hy) <= 4:
+                                show = True
+                                break
+                        if not show:
+                            continue  # Çizme
+                    ocolor = OBSTACLE_COLORS.get(otype, (128, 128, 128))
+                    if otype == "slow" and grass_img:
+                        size = int(CELL_SIZE*1.2)
                         offset = int((size - CELL_SIZE) / 2)
-                        big_grass = pygame.transform.scale(grass_img, (size, size))
-                        screen.blit(big_grass, (ox*CELL_SIZE - offset, oy*CELL_SIZE - offset))
-                    elif obs["type"] == "poison" and box_img:
-                        screen.blit(box_img, (ox*CELL_SIZE, oy*CELL_SIZE))
+                        screen.blit(grass_img, (ox*CELL_SIZE - offset, oy*CELL_SIZE - offset))
+                    elif otype == "poison" and box_img:
+                        size = int(CELL_SIZE*1.5)
+                        offset = int((size - CELL_SIZE) / 2)
+                        screen.blit(box_img, (ox*CELL_SIZE - offset, oy*CELL_SIZE - offset))
                     else:
                         pygame.draw.rect(screen, ocolor, (ox*CELL_SIZE, oy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+
             # --- PORTALLARI ÇİZ ---
             if "portals" in game_state:
+                portal_img = None
+                portal_path = os.path.join("assets", "portal.png")
+                if os.path.exists(portal_path):
+                    portal_img = pygame.image.load(portal_path)
+                    portal_img = pygame.transform.scale(portal_img, (int(CELL_SIZE*1.2), int(CELL_SIZE*1.2)))
                 for i, (portal_a, portal_b) in enumerate(game_state["portals"]):
-                    # Her iki portalı da aynı renkte (ör: mor) çiz
-                    portal_color = (128, 0, 255)
-                    pygame.draw.rect(screen, portal_color, (portal_a[0]*CELL_SIZE, portal_a[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-                    pygame.draw.rect(screen, portal_color, (portal_b[0]*CELL_SIZE, portal_b[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                    if portal_img:
+                        size = int(CELL_SIZE*1.2)
+                        offset = int((size - CELL_SIZE) / 2)
+                        screen.blit(portal_img, (portal_a[0]*CELL_SIZE - offset, portal_a[1]*CELL_SIZE - offset))
+                        screen.blit(portal_img, (portal_b[0]*CELL_SIZE - offset, portal_b[1]*CELL_SIZE - offset))
+                    else:
+                        portal_color = (128, 0, 255)
+                        pygame.draw.rect(screen, portal_color, (portal_a[0]*CELL_SIZE, portal_a[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+                        pygame.draw.rect(screen, portal_color, (portal_b[0]*CELL_SIZE, portal_b[1]*CELL_SIZE, CELL_SIZE, CELL_SIZE))
+
             # Yemleri çiz
             if "food" in game_state:
                 apple_img = None
                 apple_path = os.path.join("assets", "elma.png")
                 if os.path.exists(apple_path):
                     apple_img = pygame.image.load(apple_path)
-                    apple_img = pygame.transform.scale(apple_img, (CELL_SIZE, CELL_SIZE))
+                    apple_img = pygame.transform.scale(apple_img, (int(CELL_SIZE*1.2), int(CELL_SIZE*1.2)))
                 foods = game_state["food"]
                 if isinstance(foods, tuple):
                     foods = [foods]
                 for fx, fy in foods:
                     if apple_img:
-                        screen.blit(apple_img, (fx*CELL_SIZE, fy*CELL_SIZE))
+                        size = int(CELL_SIZE*1.2)
+                        offset = int((size - CELL_SIZE) / 2)
+                        screen.blit(apple_img, (fx*CELL_SIZE - offset, fy*CELL_SIZE - offset))
                     else:
                         pygame.draw.rect(screen, (255, 0, 0), (fx*CELL_SIZE, fy*CELL_SIZE, CELL_SIZE, CELL_SIZE))
-            # Eğer elendiyse mesaj göster
+            # --- Golden apple çiz ---
+            if "golden_food" in game_state and game_state["golden_food"]:
+                gfx, gfy = game_state["golden_food"]
+                center = (gfx*CELL_SIZE + CELL_SIZE//2, gfy*CELL_SIZE + CELL_SIZE//2)
+                radius = int(CELL_SIZE*0.5)
+                pygame.draw.circle(screen, (255, 215, 0), center, radius)  # Sarı altın elma
+            # --- Kaçan yem (moving_food) çiz ---
+            if "moving_food" in game_state and game_state["moving_food"] and "pos" in game_state["moving_food"]:
+                mfx, mfy = game_state["moving_food"]["pos"]
+                center = (mfx*CELL_SIZE + CELL_SIZE//2, mfy*CELL_SIZE + CELL_SIZE//2)
+                radius = int(CELL_SIZE*0.45)
+                pygame.draw.circle(screen, (255, 0, 0), center, radius)
+            # Eğer elendiyse mesaj ve sayaç göster
             if not is_active():
-                text = font.render("Elenedin! Devam için tuşa bas", True, (255, 255, 255))
+                now = time.time()
+                if elimination_time is None:
+                    elimination_time = now
+                elapsed = now - elimination_time
+                if elapsed < 3:
+                    kalan = int(3 - elapsed) + 1
+                    text = font.render(f"Elenedin! {kalan} sn sonra devam edebilirsin", True, (255, 255, 255))
+                else:
+                    text = font.render("Devam için tuşa bas", True, (255, 255, 255))
                 rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2))
                 screen.blit(text, rect)
+            # Power-up'ları çiz
+            if "u" in game_state:
+                for pu in game_state["u"]:
+                    x, y = pu["pos"]
+                    ptype = pu["type"]
+                    if ptype == "speed":
+                        color = (0, 0, 255)
+                    elif ptype == "shield":
+                        color = (0, 0, 0)
+                    elif ptype == "invisible":
+                        color = (128, 128, 128)
+                    elif ptype == "reverse":
+                        color = (255, 255, 255)
+                    else:
+                        color = (200, 200, 200)
+                    center = (x*CELL_SIZE + CELL_SIZE//2, y*CELL_SIZE + CELL_SIZE//2)
+                    radius = int(CELL_SIZE*0.4)
+                    pygame.draw.circle(screen, color, center, radius)
+           
+            # --- Riskli bölge çiz ---
+            # danger_zone ile ilgili kodlar kaldırıldı
     pygame.display.flip()
     clock.tick(30)  # FPS = 30 
