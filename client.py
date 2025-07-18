@@ -14,9 +14,9 @@ MSG_DISCONNECT = 'disconnect'
 def create_disconnect_message(client_id):
     return json.dumps({"type": MSG_DISCONNECT, "client_id": client_id})
 
-CLIENT_ID = input("Client ID girin (ör: client-1): ")
-if not re.match(r'^[A-Za-z0-9_-]+$', CLIENT_ID):
-    print("Uyarı: Kullanıcı adında Türkçe karakter, boşluk veya özel karakter olmamalı! Sadece harf, rakam, - ve _ kullanın.")
+CLIENT_ID = None
+# if not re.match(r'^[A-Za-z0-9_-]+$', CLIENT_ID):
+#     print("Uyarı: Kullanıcı adında Türkçe karakter, boşluk veya özel karakter olmamalı! Sadece harf, rakam, - ve _ kullanın.")
 
 # RabbitMQ bağlantısı
 credentials = pika.PlainCredentials('staj2', 'staj2')
@@ -96,32 +96,52 @@ if os.path.exists(bg_path):
     background_img = pygame.image.load(bg_path)
     background_img = pygame.transform.scale(background_img, (BOARD_WIDTH*CELL_SIZE, BOARD_HEIGHT*CELL_SIZE))
 
+nickname = ""
 # Başlatma ekranı
 started = False
 while not started:
     screen.fill((0, 0, 0))
-    text = font.render("Başlamak için bir tuşa bas", True, (255, 255, 255))
-    rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2))
-    screen.blit(text, rect)
-    pygame.display.flip()
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            # Disconnect mesajı gönder
-            msg = create_disconnect_message(CLIENT_ID)
-            try:
-                channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
-            except Exception as e:
-                print("RabbitMQ bağlantı hatası:", e)
-            pygame.quit()
-            exit()
-        elif event.type == pygame.KEYDOWN:
-            started = True
-            # Oyun başlarken sunucudan yılanın ilk yönünü ve pozisyonunu al
-            if game_state and CLIENT_ID in game_state["directions"]:
-                current_direction = game_state["directions"][CLIENT_ID]
-            else:
-                current_direction = "UP"  # Sunucudan gelmezse varsayılan
-            # Sunucuya ilk hareket mesajı gönderme gereksiz, çünkü yılan zaten sunucuda başlatılıyor
+    if CLIENT_ID is None:
+        text = font.render("Kullanıcı adını gir:", True, (255, 255, 255))
+        rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2 - 40))
+        screen.blit(text, rect)
+        input_rect = pygame.Rect(BOARD_WIDTH*CELL_SIZE//2 - 100, BOARD_HEIGHT*CELL_SIZE//2, 200, 40)
+        pygame.draw.rect(screen, (50, 50, 50), input_rect)
+        input_text = font.render(nickname, True, (255, 255, 0))
+        screen.blit(input_text, (input_rect.x+10, input_rect.y+5))
+        pygame.display.flip()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN and nickname:
+                    CLIENT_ID = nickname
+                elif event.key == pygame.K_BACKSPACE:
+                    nickname = nickname[:-1]
+                else:
+                    if len(nickname) < 16 and event.unicode.isprintable() and re.match(r'^[A-Za-z0-9_-]$', event.unicode):
+                        nickname += event.unicode
+    else:
+        text = font.render("Başlamak için bir tuşa bas", True, (255, 255, 255))
+        rect = text.get_rect(center=(BOARD_WIDTH*CELL_SIZE//2, BOARD_HEIGHT*CELL_SIZE//2))
+        screen.blit(text, rect)
+        pygame.display.flip()
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                msg = create_disconnect_message(CLIENT_ID)
+                try:
+                    channel.basic_publish(exchange='', routing_key='snake_moves', body=msg)
+                except Exception as e:
+                    print("RabbitMQ bağlantı hatası:", e)
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                started = True
+                if game_state and CLIENT_ID in game_state["directions"]:
+                    current_direction = game_state["directions"][CLIENT_ID]
+                else:
+                    current_direction = "UP"
 
 # Yönlerin terslerini tanımla
 OPPOSITE_DIRECTIONS = {
